@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Schedule</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 1rem; }
+  table { width:100%; border-collapse: collapse; }
+  td { border:1px solid #ddd; padding:.4rem; }
+  td[contenteditable] { outline:none; }
+  tr.dragging { opacity:.5; }
+  tr.drag-over { outline:2px dashed #999; }
+  .date-selectors { display:flex; gap:.5rem; justify-content:center; margin-bottom:1rem; }
+  button { margin:.25rem; }
+</style>
+</head>
+<body>
+
+<h2>Daily Schedule</h2>
+<div class="date-selectors">
+  <select id="day"></select>
+  <select id="month"></select>
+  <select id="year"></select>
+</div>
+
+<div>
+  <button onclick="undo()">Undo</button>
+  <button onclick="redo()">Redo</button>
+</div>
+
+<div id="app"></div>
+
+<script>
+const STORAGE_KEY = "schedule_app_data";
+
+const DEFAULTS = {
+  main: { title:"Schedule", rows:[["09:00",""],["10:00",""]] }
+};
+
+let data = loadData();
+let activeCell = null;
+let dragSrc = null;
+let history = [];
+let future = [];
+
+function saveHistory() {
+  history.push(JSON.stringify(data));
+  if(history.length > 100) history.shift();
+  future = [];
+}
+
+function undo(){
+  if(history.length === 0) return;
+  future.push(JSON.stringify(data));
+  data = JSON.parse(history.pop());
+  render();
+}
+
+function redo(){
+  if(future.length === 0) return;
+  history.push(JSON.stringify(data));
+  data = JSON.parse(future.pop());
+  render();
+}
+
+function render(){
+  const app = document.getElementById("app");
+  app.innerHTML = "";
+
+  Object.keys(data.sections).forEach(key=>{
+    const section = data.sections[key];
+    const table = document.createElement("table");
+    const tbody = document.createElement("tbody");
+
+    section.rows.forEach((row,i)=>{
+      const tr = document.createElement("tr");
+      tr.draggable = true;
+      tr.dataset.index = i;
+      tr.dataset.section = key;
+
+      tr.innerHTML = `
+        <td><input type="time" value="${row[0]}" data-section="${key}" data-row="${i}" data-col="0"></td>
+        <td contenteditable data-section="${key}" data-row="${i}" data-col="1">${row[1]}</td>
+        <td><button onclick="deleteRow('${key}',${i})">✕</button></td>
+      `;
+
+      addDragHandlers(tr);
+      addTouchHandlers(tr);
+      tbody.appendChild(tr);
+    });
+
+    const btn = document.createElement("button");
+    btn.textContent = "+ Add Row";
+    btn.onclick = ()=>addRowAtCursor(key);
+
+    table.appendChild(tbody);
+    app.appendChild(btn);
+    app.appendChild(table);
+  });
+}
+
+function addDragHandlers(tr){
+  tr.addEventListener("dragstart",()=>{
+    dragSrc = tr;
+    tr.classList.add("dragging");
+  });
+
+  tr.addEventListener("dragover",e=>{
+    e.preventDefault();
+    tr.classList.add("drag-over");
+  });
+
+  tr.addEventListener("drop",()=>{
+    const section = tr.dataset.section;
+    const from = +dragSrc.dataset.index;
+    const to = +tr.dataset.index;
+
+    saveHistory();
+    const rows = data.sections[section].rows;
+    const moved = rows.splice(from,1)[0];
+    rows.splice(to,0,moved);
+
+    render();
+    autoSave();
+  });
+
+  tr.addEventListener("dragend",()=> tr.classList.remove("dragging"));
+}
+
+// Touch drag (simple swap logic)
+function addTouchHandlers(tr){
+  let startY = 0;
+  tr.addEventListener("touchstart", e=>{
+    startY = e.touches[0].clientY;
+    dragSrc = tr;
+  });
+
+  tr.addEventListener("touchend", e=>{
+    const endY = e.changedTouches[0].clientY;
+    const diff = endY - startY;
+    if(Math.abs(diff) < 10) return;
+
+    const section = tr.dataset.section;
+    const index = +tr.dataset.index;
+
+    saveHistory();
+    const rows = data.sections[section].rows;
+
+    if(diff > 0 && index < rows.length-1){
+      [rows[index], rows[index+1]] = [rows[index+1], rows[index]];
+    } else if(diff < 0 && index > 0){
+      [rows[index], rows[index-1]] = [rows[index-1], rows[index]];
+    }
+
+    render();
+    autoSave();
+  });
+}
+
+function addRowAtCursor(sectionKey){
+  syncFromDOM();
+  saveHistory();
+
+  let index = data.sections[sectionKey].rows.length;
+  if(activeCell) index = +activeCell.dataset.row + 1;
+
+  data.sections[sectionKey].rows.splice(index,0,["",""]);
+  render();
+  autoSave();
+}
+
+function deleteRow(key,i){
+  syncFromDOM();
+  saveHistory();
+  data.sections[key].rows.splice(i,1);
+  render();
+  autoSave();
+}
+
+function syncFromDOM(){
+  document.querySelectorAll("input[type=time], td[contenteditable]").forEach(el=>{
+    const s = el.dataset.section;
+    const r = +el.dataset.row;
+    const c = +el.dataset.col;
+    if(el.tagName === "INPUT"){
+      data.sections[s].rows[r][c] = el.value;
+    } else {
+      data.sections[s].rows[r][c] = el.textContent;
+    }
+  });
+}
+
+function autoSave(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function loadData(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if(raw) return JSON.parse(raw);
+  return { sections: JSON.parse(JSON.stringify(DEFAULTS)) };
+}
+
+// Enter key = new row
+window.addEventListener("keydown", e=>{
+  if(e.key === "Enter" && activeCell){
+    e.preventDefault();
+    addRowAtCursor(activeCell.dataset.section);
+  }
+});
+
+// Track active cell
+window.addEventListener("focusin", e=>{
+  if(e.target.matches("td[contenteditable]")) activeCell = e.target;
+});
+
+// Date selectors
+function initDateSelectors(){
+  const d = document.getElementById("day");
+  const m = document.getElementById("month");
+  const y = document.getElementById("year");
+
+  for(let i=1;i<=31;i++) d.add(new Option(i,i));
+  for(let i=0;i<12;i++) m.add(new Option(i+1,i));
+  for(let i=2020;i<=2035;i++) y.add(new Option(i,i));
+
+  [d,m,y].forEach(sel=>{
+    sel.onchange = ()=>{
+      data.date = { day:d.value, month:m.value, year:y.value };
+      autoSave();
+    };
+  });
+}
+
+render();
+initDateSelectors();
+</script>
+
+</body>
+</html>
