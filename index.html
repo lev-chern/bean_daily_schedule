@@ -31,7 +31,18 @@
 
 <div id="app"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  
 <script>
+
+const SUPABASE_URL = "https://xwqyehsdpqjviperoqmr.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3cXllaHNkcHFqdmlwZXJvcW1yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyOTAyNjEsImV4cCI6MjA5MDg2NjI2MX0.YKZoP-H3unjoO4kIfQjjnduHTQImj0rjxBAOrBcjVOQ";
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const USER_ID = "default-user";
+
+  
 const STORAGE_KEY = "schedule_app_data";
 
 const DEFAULTS = {
@@ -191,14 +202,46 @@ function syncFromDOM(){
   });
 }
 
+let saveTimeout
+  
 function autoSave(){
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(saveToCloud, 500);
 }
+
+async function saveToCloud() {
+  syncFromDOM();
+
+  await supabase
+    .from("schedules")
+    .upsert({
+      user_id: USER_ID,
+      data: data,
+      updated_at: new Date()
+    }, { onConflict: ["user_id"] });
+
+  console.log("Saved to cloud");
+}
+  
 
 function loadData(){
   const raw = localStorage.getItem(STORAGE_KEY);
   if(raw) return JSON.parse(raw);
   return { sections: JSON.parse(JSON.stringify(DEFAULTS)) };
+}
+
+async function loadFromCloud() {
+  const { data: rows } = await supabase
+    .from("schedules")
+    .select("*")
+    .eq("user_id", USER_ID)
+    .single();
+
+  if (rows) {
+    data = rows.data;
+  }
+
+  render();
 }
 
 // Enter key = new row
