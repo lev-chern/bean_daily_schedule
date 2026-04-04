@@ -54,6 +54,7 @@ let activeCell = null;
 let dragSrc = null;
 let history = [];
 let future = [];
+  let saveTimeout;
 
 function saveHistory() {
   history.push(JSON.stringify(data));
@@ -201,8 +202,6 @@ function syncFromDOM(){
     }
   });
 }
-
-let saveTimeout
   
 function autoSave(){
   clearTimeout(saveTimeout);
