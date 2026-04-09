@@ -224,9 +224,7 @@ async function saveToCloud() {
   
 
 function loadData(){
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if(raw) return JSON.parse(raw);
-  return { sections: JSON.parse(JSON.stringify(DEFAULTS)) };
+  loadFromCloud();
 }
 
 async function loadFromCloud() {
@@ -274,7 +272,7 @@ function initDateSelectors(){
   });
 }
 
-render();
+loadFromCloud();
 initDateSelectors();
 </script>
 
